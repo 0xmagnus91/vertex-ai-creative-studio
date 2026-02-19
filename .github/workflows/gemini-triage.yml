@@ -14,9 +14,15 @@ on:
         required: false
       APP_PRIVATE_KEY:
         required: false
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to triage'
+        required: true
+        type: 'string'
 
 concurrency:
-  group: '${{ github.workflow }}-triage-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number }}'
+  group: '${{ github.workflow }}-triage-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number || inputs.issue_number }}'
   cancel-in-progress: true
 
 defaults:
@@ -30,12 +36,28 @@ jobs:
     outputs:
       available_labels: '${{ steps.get_labels.outputs.available_labels }}'
       selected_labels: '${{ steps.gemini_analysis.outputs.gemini_response }}'
+      issue_number: '${{ github.event.issue.number || inputs.issue_number }}'
     permissions:
       contents: 'read'
       id-token: 'write'
       issues: 'read'
       pull-requests: 'read'
     steps:
+      - name: 'Fetch issue data for dispatch'
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+          ISSUE_NUM: '${{ inputs.issue_number }}'
+        run: |
+          ISSUE_JSON=$(gh api repos/${{ github.repository }}/issues/${ISSUE_NUM})
+          echo "DISPATCH_ISSUE_TITLE=$(echo "$ISSUE_JSON" | jq -r '.title')" >> $GITHUB_ENV
+          {
+            echo "DISPATCH_ISSUE_BODY<<BODYEOF"
+            echo "$ISSUE_JSON" | jq -r '.body'
+            echo "BODYEOF"
+          } >> $GITHUB_ENV
+          echo "DISPATCH_ISSUE_NUMBER=${ISSUE_NUM}" >> $GITHUB_ENV
+
       - name: 'Get repository labels'
         id: 'get_labels'
         uses: 'actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea' # ratchet:actions/github-script@v7.0.1
@@ -65,8 +87,8 @@ jobs:
         uses: 'google-github-actions/run-gemini-cli@v0' # ratchet:exclude
         env:
           GITHUB_TOKEN: '' # Do NOT pass any auth tokens here since this runs on untrusted inputs
-          ISSUE_TITLE: '${{ github.event.issue.title }}'
-          ISSUE_BODY: '${{ github.event.issue.body }}'
+          ISSUE_TITLE: '${{ github.event.issue.title || env.DISPATCH_ISSUE_TITLE }}'
+          ISSUE_BODY: '${{ github.event.issue.body || env.DISPATCH_ISSUE_BODY }}'
           AVAILABLE_LABELS: '${{ steps.get_labels.outputs.available_labels }}'
         with:
           gemini_cli_version: '${{ vars.GEMINI_CLI_VERSION }}'
@@ -144,7 +166,7 @@ jobs:
 
       - name: 'Apply labels'
         env:
-          ISSUE_NUMBER: '${{ github.event.issue.number }}'
+          ISSUE_NUMBER: '${{ github.event.issue.number || needs.triage.outputs.issue_number }}'
           AVAILABLE_LABELS: '${{ needs.triage.outputs.available_labels }}'
           SELECTED_LABELS: '${{ needs.triage.outputs.selected_labels }}'
         uses: 'actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea' # ratchet:actions/github-script@v7.0.1
