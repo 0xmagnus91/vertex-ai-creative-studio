@@ -35,7 +35,7 @@ jobs:
     timeout-minutes: 20
     outputs:
       available_labels: '${{ steps.get_labels.outputs.available_labels }}'
-      selected_labels: '${{ steps.gemini_analysis.outputs.gemini_response }}'
+      selected_labels: '${{ steps.gemini_analysis.outputs.summary }}'
       issue_number: '${{ github.event.issue.number || inputs.issue_number }}'
     permissions:
       contents: 'read'
